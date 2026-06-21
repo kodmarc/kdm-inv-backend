@@ -13,17 +13,20 @@ User = get_user_model()
 
 def set_auth_cookies(response, access_token, refresh_token):
     """
-    Configures and writes HttpOnly, Secure, and SameSite=Strict cookies
+    Configures and writes HttpOnly, Secure, and SameSite=None (in prod) or Lax (in dev) cookies
     for both access and refresh JWT tokens.
     """
+    samesite_val = 'None' if not settings.DEBUG else 'Lax'
+    secure_val = True if not settings.DEBUG else False
+
     # Access token cookie (expires in 15 minutes)
     response.set_cookie(
         key='access_token',
         value=str(access_token),
         max_age=15 * 60,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite='Strict',
+        secure=secure_val,
+        samesite=samesite_val,
         path='/'
     )
     # Refresh token cookie (expires in 7 days)
@@ -32,9 +35,30 @@ def set_auth_cookies(response, access_token, refresh_token):
         value=str(refresh_token),
         max_age=7 * 24 * 60 * 60,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite='Strict',
+        secure=secure_val,
+        samesite=samesite_val,
         path='/'
+    )
+
+
+def delete_auth_cookies(response):
+    """
+    Deletes the authentication cookies with matching secure and samesite parameters.
+    """
+    samesite_val = 'None' if not settings.DEBUG else 'Lax'
+    secure_val = True if not settings.DEBUG else False
+
+    response.delete_cookie(
+        key='access_token',
+        path='/',
+        secure=secure_val,
+        samesite=samesite_val
+    )
+    response.delete_cookie(
+        key='refresh_token',
+        path='/',
+        secure=secure_val,
+        samesite=samesite_val
     )
 
 
@@ -200,9 +224,7 @@ class LogoutView(APIView):
                 pass
 
         response = Response({"detail": "Successfully logged out."}, status=status.HTTP_200_OK)
-        # Clear JWT cookies
-        response.delete_cookie('access_token', path='/')
-        response.delete_cookie('refresh_token', path='/')
+        delete_auth_cookies(response)
         return response
 
 
@@ -256,8 +278,7 @@ class TokenRefreshView(APIView):
                 {"error": "Refresh token is invalid or expired.", "code": "INVALID_REFRESH_TOKEN", "status": 401},
                 status=status.HTTP_401_UNAUTHORIZED
             )
-            response.delete_cookie('access_token', path='/')
-            response.delete_cookie('refresh_token', path='/')
+            delete_auth_cookies(response)
             return response
 
 
