@@ -20,6 +20,8 @@ class PolicyBasedCRUDPermission(permissions.BasePermission):
     Permission class checking policy settings for Items and Companies:
     - Centralized Mode ('ORG_ADMIN'): Only HQ users (ORG_ADMIN, ORG_USER) can write. Branch users can read.
     - Decentralized Mode ('BRANCH_ADMIN'): Only branch users (BRANCH_ADMIN, USER) can write (scoped). HQ users can read.
+
+    ViewSets must set `policy_type = 'item'` or `policy_type = 'company'` to select the right policy field.
     """
     def has_permission(self, request, view):
         user = request.user
@@ -29,6 +31,7 @@ class PolicyBasedCRUDPermission(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
+        # Determine which policy field to check based on what the viewset is managing.
         policy_attr = 'item_creation_policy' if getattr(view, 'policy_type', 'item') == 'item' else 'company_creation_policy'
         policy = getattr(user.organization, policy_attr)
 

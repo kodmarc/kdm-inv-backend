@@ -97,16 +97,22 @@ class BranchSequence(models.Model):
 
 def get_next_sequence_value(organization, branch, sequence_type):
     from django.db import transaction, IntegrityError
-    
-    # We must operate in a transaction block to use select_for_update
-    try:
-        with transaction.atomic():
-            seq = BranchSequence.objects.select_for_update().get(
-                organization=organization,
-                branch=branch,
-                sequence_type=sequence_type
-            )
-    except BranchSequence.DoesNotExist:
+
+    # Use filter().first() instead of get() so that a missing row returns None rather than
+    # raising DoesNotExist. DoesNotExist is a non-database exception; if it escaped from
+    # inside a `with transaction.atomic():` savepoint, Django would set needs_rollback=True
+    # on the connection, making all subsequent queries in the outer atomic block fail with
+    # TransactionManagementError — hence the 500 on every first invoice creation.
+    seq = BranchSequence.objects.select_for_update().filter(
+        organization=organization,
+        branch=branch,
+        sequence_type=sequence_type
+    ).first()
+
+    if seq is None:
+        # Row doesn't exist yet. Wrap only the INSERT in a savepoint so that an
+        # IntegrityError (a real DB exception) can be caught cleanly: after the savepoint
+        # rollback Django does NOT set needs_rollback, so the outer transaction stays usable.
         try:
             with transaction.atomic():
                 seq = BranchSequence.objects.create(
@@ -115,18 +121,14 @@ def get_next_sequence_value(organization, branch, sequence_type):
                     sequence_type=sequence_type,
                     next_val=1
                 )
-            # Re-fetch and lock the newly created row
-            with transaction.atomic():
-                seq = BranchSequence.objects.select_for_update().get(id=seq.id)
         except IntegrityError:
-            # Concurrent creation won the race, fetch and lock it
-            with transaction.atomic():
-                seq = BranchSequence.objects.select_for_update().get(
-                    organization=organization,
-                    branch=branch,
-                    sequence_type=sequence_type
-                )
-                
+            # Concurrent creation won the race; fetch and lock the winner's row.
+            seq = BranchSequence.objects.select_for_update().filter(
+                organization=organization,
+                branch=branch,
+                sequence_type=sequence_type
+            ).first()
+
     current_val = seq.next_val
     seq.next_val += 1
     seq.save(update_fields=['next_val'])
