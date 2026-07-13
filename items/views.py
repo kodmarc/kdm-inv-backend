@@ -1,36 +1,22 @@
-from django.db import transaction
-from django.utils import timezone
-from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework import viewsets, permissions
 from .models import ItemCategory, Item
 from .serializers import ItemCategorySerializer, ItemSerializer
-from organizations.permissions import PolicyBasedCRUDPermission
+from organizations.permissions import IsOrganizationHQUser
 
 class ItemCategoryViewSet(viewsets.ModelViewSet):
     serializer_class = ItemCategorySerializer
-    permission_classes = [permissions.IsAuthenticated, PolicyBasedCRUDPermission]
-    policy_type = 'item'
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsOrganizationHQUser()]
 
     def get_queryset(self):
         user = self.request.user
         if not user.is_authenticated or not user.organization:
             return ItemCategory.objects.none()
-
-        org = user.organization
-        policy = org.item_creation_policy
-        qs = ItemCategory.objects.filter(organization=org)
-
-        if policy == 'BRANCH_ADMIN':
-            # Decentralized mode
-            if user.role in ['BRANCH_ADMIN', 'USER', 'KPO']:
-                return qs.filter(branch=user.branch).order_by('name')
-            # HQ users can view all branch categories
-            return qs.order_by('name')
-        else:
-            # Centralized mode: global categories (where branch is null)
-            return qs.filter(branch__isnull=True).order_by('name')
+        # Categories are org-level — all authenticated users can read them all.
+        return ItemCategory.objects.filter(organization=user.organization).order_by('name')
 
     def perform_create(self, serializer):
         serializer.save(organization=self.request.user.organization)
@@ -38,32 +24,32 @@ class ItemCategoryViewSet(viewsets.ModelViewSet):
 
 class ItemViewSet(viewsets.ModelViewSet):
     serializer_class = ItemSerializer
-    permission_classes = [permissions.IsAuthenticated, PolicyBasedCRUDPermission]
-    policy_type = 'item'
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsOrganizationHQUser()]
 
     def get_queryset(self):
         user = self.request.user
         if not user.is_authenticated or not user.organization:
             return Item.objects.none()
 
-        org = user.organization
-        policy = org.item_creation_policy
-        qs = Item.objects.filter(organization=org)
+        qs = Item.objects.filter(organization=user.organization)
 
-        # Optional query filtering by company code
+        # Optional filter by company code (used by branch pages to load company-specific items).
         company_code = self.request.query_params.get('company_code')
         if company_code:
             qs = qs.filter(company__code__iexact=company_code)
 
-        if policy == 'BRANCH_ADMIN':
-            # Decentralized mode
-            if user.role in ['BRANCH_ADMIN', 'USER', 'KPO']:
-                return qs.filter(branch=user.branch).order_by('name')
-            # HQ users can view all branch items
-            return qs.order_by('name')
-        else:
-            # Centralized mode: global items (where branch is null)
-            return qs.filter(branch__isnull=True).order_by('name')
+        # Branch users see items for companies assigned to their branch.
+        if user.role in ['BRANCH_ADMIN', 'USER', 'KPO']:
+            if user.branch:
+                qs = qs.filter(company__branches=user.branch)
+            else:
+                return Item.objects.none()
+
+        return qs.order_by('name')
 
     def perform_create(self, serializer):
         serializer.save(organization=self.request.user.organization)

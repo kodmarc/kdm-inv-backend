@@ -3,12 +3,8 @@ from django.db import models
 from django.core.validators import RegexValidator, MinLengthValidator
 
 class Organization(models.Model):
-    class Policy(models.TextChoices):
-        ORG_ADMIN = 'ORG_ADMIN', 'Centralized (Org Admin Only)'
-        BRANCH_ADMIN = 'BRANCH_ADMIN', 'Decentralized (Branch Admins)'
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    
+
     # Custom Unique Org ID (e.g. kdm101).
     org_id = models.CharField(
         max_length=50,
@@ -30,19 +26,6 @@ class Organization(models.Model):
         ]
     )
     name = models.CharField(max_length=255)
-    
-    # Policy controls for data scoping
-    company_creation_policy = models.CharField(
-        max_length=20,
-        choices=Policy.choices,
-        default=Policy.ORG_ADMIN
-    )
-    item_creation_policy = models.CharField(
-        max_length=20,
-        choices=Policy.choices,
-        default=Policy.ORG_ADMIN
-    )
-    
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):

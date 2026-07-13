@@ -78,10 +78,8 @@ class SignupView(APIView):
                     "role": user.role,
                     "org_id": user.organization.org_id,
                     "org_name": user.organization.name,
-                    "company_creation_policy": user.organization.company_creation_policy,
-                    "item_creation_policy": user.organization.item_creation_policy,
                 },
-                "csrf_token": get_token(request)  # Return initial CSRF token
+                "csrf_token": get_token(request)
             }, status=status.HTTP_201_CREATED)
             
             set_auth_cookies(response, refresh.access_token, refresh)
@@ -136,8 +134,6 @@ class LoginOrgView(APIView):
                 "role": user.role,
                 "org_id": user.organization.org_id,
                 "org_name": user.organization.name,
-                "company_creation_policy": user.organization.company_creation_policy,
-                "item_creation_policy": user.organization.item_creation_policy,
             },
             "csrf_token": get_token(request)
         }, status=status.HTTP_200_OK)
@@ -198,10 +194,9 @@ class LoginBranchView(APIView):
                 "username": user.username,
                 "role": user.role,
                 "org_id": user.organization.org_id,
+                "org_name": user.organization.name,
                 "branch_slug": user.branch.slug,
                 "branch_name": user.branch.name,
-                "company_creation_policy": user.organization.company_creation_policy,
-                "item_creation_policy": user.organization.item_creation_policy,
             },
             "csrf_token": get_token(request)
         }, status=status.HTTP_200_OK)
@@ -256,9 +251,9 @@ class TokenRefreshView(APIView):
                     "username": user.username,
                     "role": user.role,
                     "org_id": user.organization.org_id if user.organization else None,
+                    "org_name": user.organization.name if user.organization else None,
                     "branch_slug": user.branch.slug if user.branch else None,
-                    "company_creation_policy": user.organization.company_creation_policy if user.organization else None,
-                    "item_creation_policy": user.organization.item_creation_policy if user.organization else None,
+                    "branch_name": user.branch.name if user.branch else None,
                 },
                 "csrf_token": get_token(request)
             }, status=status.HTTP_200_OK)
@@ -296,8 +291,6 @@ class MeView(APIView):
             "org_name": user.organization.name if user.organization else None,
             "branch_slug": user.branch.slug if user.branch else None,
             "branch_name": user.branch.name if user.branch else None,
-            "company_creation_policy": user.organization.company_creation_policy if user.organization else None,
-            "item_creation_policy": user.organization.item_creation_policy if user.organization else None,
             "csrf_token": get_token(request),
         }
         return Response(data, status=status.HTTP_200_OK)

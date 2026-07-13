@@ -1,35 +1,32 @@
 from rest_framework import viewsets, permissions
 from .models import Company
 from .serializers import CompanySerializer
-from organizations.permissions import PolicyBasedCRUDPermission
+from organizations.permissions import IsOrganizationHQUser
 
 class CompanyViewSet(viewsets.ModelViewSet):
     serializer_class = CompanySerializer
-    permission_classes = [permissions.IsAuthenticated, PolicyBasedCRUDPermission]
-    policy_type = 'company'
+
+    def get_permissions(self):
+        # All authenticated users can read; only HQ users can write.
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsOrganizationHQUser()]
 
     def get_queryset(self):
         user = self.request.user
         if not user.is_authenticated or not user.organization:
             return Company.objects.none()
 
-        org = user.organization
-        policy = org.company_creation_policy
+        qs = Company.objects.filter(organization=user.organization)
 
-        # Base filter: always isolate by Organization
-        qs = Company.objects.filter(organization=org)
+        # Branch users only see companies assigned to their branch via the M2M.
+        if user.role in ['BRANCH_ADMIN', 'USER', 'KPO']:
+            if user.branch:
+                return qs.filter(branches=user.branch).order_by('name')
+            return Company.objects.none()
 
-        if policy == 'BRANCH_ADMIN':
-            # Decentralized mode
-            if user.role in ['BRANCH_ADMIN', 'USER', 'KPO']:
-                # Branch users only see companies assigned to their own branch
-                return qs.filter(branch=user.branch).order_by('name')
-            # HQ users (ORG_ADMIN, ORG_USER) can see all branch companies
-            return qs.order_by('name')
-        else:
-            # Centralized mode: all users see organization-wide (global) companies
-            return qs.filter(branch__isnull=True).order_by('name')
+        # HQ users see all companies in the organization.
+        return qs.prefetch_related('branches').order_by('name')
 
     def perform_create(self, serializer):
         serializer.save(organization=self.request.user.organization)
-
