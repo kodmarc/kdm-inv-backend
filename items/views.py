@@ -15,7 +15,6 @@ class ItemCategoryViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not user.is_authenticated or not user.organization:
             return ItemCategory.objects.none()
-        # Categories are org-level — all authenticated users can read them all.
         return ItemCategory.objects.filter(organization=user.organization).order_by('name')
 
     def perform_create(self, serializer):
@@ -49,7 +48,30 @@ class ItemViewSet(viewsets.ModelViewSet):
             else:
                 return Item.objects.none()
 
-        return qs.order_by('name')
+        # Category filter (for HQ portal)
+        category_id = self.request.query_params.get('category')
+        if category_id:
+            qs = qs.filter(category_id=category_id)
+
+        # Sorting parameters
+        sort_by = self.request.query_params.get('sort_by', 'name')
+        sort_order = self.request.query_params.get('sort_order', 'asc')
+        
+        # Map frontend sort options to model fields
+        sort_field_map = {
+            'name': 'name',
+            'sales_rate': 'sales_rate',
+            'purchase_rate': 'purchase_rate',
+            'created_at': 'created_at',
+        }
+        
+        field = sort_field_map.get(sort_by, 'name')
+        
+        # Apply order
+        if sort_order == 'desc':
+            field = f'-{field}'
+        
+        return qs.order_by(field)
 
     def perform_create(self, serializer):
         serializer.save(organization=self.request.user.organization)
