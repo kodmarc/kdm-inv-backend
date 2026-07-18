@@ -9,7 +9,7 @@ from .views import (
     PurchaseInvoiceViewSet,
     PurchaseReturnViewSet,
     DamageReturnViewSet,
-    DamageReceivingViewSet
+    SalesReturnViewSet,  # ✅ Sales Return
 )
 
 router = DefaultRouter()
@@ -21,10 +21,8 @@ router.register('sales-invoices', SalesInvoiceViewSet, basename='sales-invoice')
 router.register('purchase-invoices', PurchaseInvoiceViewSet, basename='purchase-invoice')
 router.register('purchase-returns', PurchaseReturnViewSet, basename='purchase-return')
 router.register('damage-returns', DamageReturnViewSet, basename='damage-return')
-router.register('damage-receivings', DamageReceivingViewSet, basename='damage-receiving')
+router.register('sales-returns', SalesReturnViewSet, basename='sales-return')  # ✅ Sales Return endpoint
 
 urlpatterns = [
     path('', include(router.urls)),
 ]
-
-

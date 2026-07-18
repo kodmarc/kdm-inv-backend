@@ -72,15 +72,12 @@ class Party(models.Model):
     email = models.EmailField(max_length=100, blank=True, null=True)
     is_active = models.BooleanField(default=True)
     
-    # Roles checkboxes
     is_supplier = models.BooleanField(default=False)
     is_party = models.BooleanField(default=False)
     
-    # Tax details
     ntn = models.CharField(max_length=100, blank=True, null=True)
     gst_no = models.CharField(max_length=100, blank=True, null=True)
     
-    # Terms
     credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     balance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
@@ -148,7 +145,6 @@ class AccountOpening(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        # Auto-generate sequentially scoped code if left blank (e.g. ACC-0001)
         if not self.code:
             prefix = "ACC"
             next_val = get_next_sequence_value(self.organization, self.branch, prefix)
@@ -158,8 +154,6 @@ class AccountOpening(models.Model):
     def __str__(self):
         branch_info = f" | {self.branch.name}" if self.branch else ""
         return f"{self.name} ({self.code}{branch_info})"
-
-
 
 
 class SalesInvoice(models.Model):
@@ -180,14 +174,12 @@ class SalesInvoice(models.Model):
     company = models.ForeignKey('companies.Company', on_delete=models.PROTECT, related_name='sales_invoices')
     account = models.ForeignKey(AccountOpening, on_delete=models.PROTECT, related_name='sales_invoices')
     
-    # Auto-fetched fields (snapshot at creation time)
     ntn = models.CharField(max_length=100, blank=True, null=True)
     gst_no = models.CharField(max_length=100, blank=True, null=True)
     credit_days = models.IntegerField(default=0)
     credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     balance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
-    # Invoice-level summary
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     net_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
@@ -261,14 +253,12 @@ class PurchaseInvoice(models.Model):
     remarks = models.TextField(blank=True, null=True)
     s_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
-    # Auto-fetched fields (snapshot at creation time)
     ntn = models.CharField(max_length=100, blank=True, null=True)
     gst_no = models.CharField(max_length=100, blank=True, null=True)
     credit_days = models.IntegerField(default=0)
     credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     balance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
-    # Invoice-level summary
     freight = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     adv_income_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     net_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
@@ -331,14 +321,13 @@ class JournalEntry(models.Model):
     branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name='journal_entries', null=True, blank=True)
     date = models.DateField()
     description = models.CharField(max_length=500, blank=True)
-    reference = models.CharField(max_length=255, blank=True)  # e.g. "Invoice SAL-0001"
+    reference = models.CharField(max_length=255, blank=True)
     
-    # Optional links back to originating invoice/voucher
     sales_invoice = models.ForeignKey(SalesInvoice, on_delete=models.SET_NULL, null=True, blank=True, related_name='journal_entries')
     purchase_invoice = models.ForeignKey(PurchaseInvoice, on_delete=models.SET_NULL, null=True, blank=True, related_name='journal_entries')
     purchase_return = models.ForeignKey('PurchaseReturn', on_delete=models.SET_NULL, null=True, blank=True, related_name='journal_entries')
     damage_return = models.ForeignKey('DamageReturn', on_delete=models.SET_NULL, null=True, blank=True, related_name='journal_entries')
-    damage_receiving = models.ForeignKey('DamageReceiving', on_delete=models.SET_NULL, null=True, blank=True, related_name='journal_entries')
+    sales_return = models.ForeignKey('SalesReturn', on_delete=models.SET_NULL, null=True, blank=True, related_name='journal_entries')  # ✅ Added
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -352,7 +341,6 @@ class JournalItem(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     entry = models.ForeignKey(JournalEntry, on_delete=models.CASCADE, related_name='items')
     
-    # Debit/Credit can apply to a ledger account OR a specific party (Customer/Supplier)
     account = models.ForeignKey(AccountOpening, on_delete=models.PROTECT, related_name='journal_items', null=True, blank=True)
     party = models.ForeignKey(Party, on_delete=models.PROTECT, related_name='journal_items', null=True, blank=True)
     
@@ -365,11 +353,18 @@ class JournalItem(models.Model):
         return f"{self.entry} | {target} | Debit: {self.debit} | Credit: {self.credit}"
 
 
+# ============== PURCHASE RETURN ==============
+
 class PurchaseReturn(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('paid', 'Paid'),
     ]
+    RETURN_TYPE_CHOICES = [
+        ('normal', 'Normal'),
+        ('damage', 'Damage'),
+    ]
+    
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name='purchase_returns')
     branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name='purchase_returns', null=True, blank=True)
@@ -380,17 +375,18 @@ class PurchaseReturn(models.Model):
     account = models.ForeignKey(AccountOpening, on_delete=models.PROTECT, related_name='purchase_returns')
     company = models.ForeignKey('companies.Company', on_delete=models.PROTECT, related_name='purchase_returns')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    return_type = models.CharField(max_length=20, choices=RETURN_TYPE_CHOICES, default='normal')  # ✅ Normal/Damage
+    
     remarks = models.TextField(blank=True, null=True)
     s_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
-    # Auto-fetched fields (snapshot at creation time)
     ntn = models.CharField(max_length=100, blank=True, null=True)
     gst_no = models.CharField(max_length=100, blank=True, null=True)
     credit_days = models.IntegerField(default=0)
     credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     balance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
-    # Summary
     freight = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     adv_income_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     net_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
@@ -447,6 +443,8 @@ class PurchaseReturnLineItem(models.Model):
         return f"{self.purchase_return.purchase_return_code} - Item: {self.item.name} - Qty: {self.pcs}"
 
 
+# ============== DAMAGE RETURN (Supplier Damage Returns) ==============
+
 class DamageReturn(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
@@ -465,14 +463,12 @@ class DamageReturn(models.Model):
     remarks = models.TextField(blank=True, null=True)
     s_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
-    # Auto-fetched fields (snapshot at creation time)
     ntn = models.CharField(max_length=100, blank=True, null=True)
     gst_no = models.CharField(max_length=100, blank=True, null=True)
     credit_days = models.IntegerField(default=0)
     credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     balance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
-    # Summary
     net_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -523,32 +519,40 @@ class DamageReturnLineItem(models.Model):
         return f"{self.damage_return.damage_return_code} - Item: {self.item.name} - Qty: {self.pcs}"
 
 
-class DamageReceiving(models.Model):
+# ============== SALES RETURN (Customer Returns - Replaces DamageReceiving) ==============
+
+class SalesReturn(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('paid', 'Paid'),
     ]
+    RETURN_TYPE_CHOICES = [
+        ('normal', 'Normal'),
+        ('damage', 'Damage'),
+    ]
+    
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name='damage_receivings')
-    branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name='damage_receivings', null=True, blank=True)
-    damage_receiving_code = models.CharField(max_length=50, blank=True)
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name='sales_returns')
+    branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name='sales_returns', null=True, blank=True)
+    sales_return_code = models.CharField(max_length=50, blank=True)
     date = models.DateField()
-    salesman = models.ForeignKey(Salesman, on_delete=models.PROTECT, related_name='damage_receivings', null=True, blank=True)
-    party = models.ForeignKey(Party, on_delete=models.PROTECT, related_name='damage_receivings')
-    account = models.ForeignKey(AccountOpening, on_delete=models.PROTECT, related_name='damage_receivings')
-    company = models.ForeignKey('companies.Company', on_delete=models.PROTECT, related_name='damage_receivings')
+    salesman = models.ForeignKey(Salesman, on_delete=models.PROTECT, related_name='sales_returns', null=True, blank=True)
+    party = models.ForeignKey(Party, on_delete=models.PROTECT, related_name='sales_returns')
+    account = models.ForeignKey(AccountOpening, on_delete=models.PROTECT, related_name='sales_returns')
+    company = models.ForeignKey('companies.Company', on_delete=models.PROTECT, related_name='sales_returns')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    return_type = models.CharField(max_length=20, choices=RETURN_TYPE_CHOICES, default='normal')  # ✅ Normal/Damage
+    
     remarks = models.TextField(blank=True, null=True)
     s_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
-    # Auto-fetched fields (snapshot at creation time)
     ntn = models.CharField(max_length=100, blank=True, null=True)
     gst_no = models.CharField(max_length=100, blank=True, null=True)
     credit_days = models.IntegerField(default=0)
     credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     balance_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
-    # Summary
     net_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -557,35 +561,36 @@ class DamageReceiving(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=['organization', 'damage_receiving_code'],
+                fields=['organization', 'sales_return_code'],
                 condition=models.Q(branch__isnull=True),
-                name='unique_org_damage_receiving_code'
+                name='unique_org_sales_return_code'
             ),
             models.UniqueConstraint(
-                fields=['branch', 'damage_receiving_code'],
+                fields=['branch', 'sales_return_code'],
                 condition=models.Q(branch__isnull=False),
-                name='unique_branch_damage_receiving_code'
+                name='unique_branch_sales_return_code'
             ),
         ]
 
     def save(self, *args, **kwargs):
-        if not self.damage_receiving_code:
-            prefix = "DRV"
+        if not self.sales_return_code:
+            prefix = "SRN"
             next_val = get_next_sequence_value(self.organization, self.branch, prefix)
-            self.damage_receiving_code = f"{prefix}-{next_val:04d}"
+            self.sales_return_code = f"{prefix}-{next_val:04d}"
         super().save(*args, **kwargs)
 
     def __str__(self):
         branch_info = f" | {self.branch.name}" if self.branch else ""
-        return f"{self.damage_receiving_code} - Party: {self.party.name} ({self.net_amount}{branch_info})"
+        return f"{self.sales_return_code} - Party: {self.party.name} ({self.net_amount}{branch_info})"
 
 
-class DamageReceivingLineItem(models.Model):
+class SalesReturnLineItem(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    damage_receiving = models.ForeignKey(DamageReceiving, on_delete=models.CASCADE, related_name='line_items')
-    item = models.ForeignKey('items.Item', on_delete=models.PROTECT, related_name='damage_receiving_items')
+    sales_return = models.ForeignKey(SalesReturn, on_delete=models.CASCADE, related_name='line_items')
+    item = models.ForeignKey('items.Item', on_delete=models.PROTECT, related_name='sales_return_items')
     
     manual_code = models.CharField(max_length=50, blank=True, null=True)
+    carton = models.DecimalField(max_digits=12, decimal_places=2, default=0.00) 
     issue_units = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     pcs = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     rate = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
@@ -597,5 +602,4 @@ class DamageReceivingLineItem(models.Model):
     net_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
 
     def __str__(self):
-        return f"{self.damage_receiving.damage_receiving_code} - Item: {self.item.name} - Qty: {self.pcs}"
-
+        return f"{self.sales_return.sales_return_code} - Item: {self.item.name} - Qty: {self.pcs}"

@@ -3,7 +3,15 @@ from django.db import transaction
 from organizations.models import Branch
 from items.models import Item
 from companies.models import Company
-from .models import OrderBooker, Salesman, Party, AccountOpening, SalesInvoice, SalesInvoiceLineItem, PurchaseInvoice, PurchaseInvoiceLineItem, JournalEntry, JournalItem, PurchaseReturn, PurchaseReturnLineItem, DamageReturn, DamageReturnLineItem, DamageReceiving, DamageReceivingLineItem
+from .models import (
+    OrderBooker, Salesman, Party, AccountOpening, 
+    SalesInvoice, SalesInvoiceLineItem, 
+    PurchaseInvoice, PurchaseInvoiceLineItem, 
+    JournalEntry, JournalItem, 
+    PurchaseReturn, PurchaseReturnLineItem, 
+    DamageReturn, DamageReturnLineItem, 
+    SalesReturn, SalesReturnLineItem  # ✅ Only these - no DamageReceiving
+)
 
 class OrderBookerSerializer(serializers.ModelSerializer):
     branch = serializers.SlugRelatedField(
@@ -39,11 +47,11 @@ class OrderBookerSerializer(serializers.ModelSerializer):
         contact_no = attrs.get('contact_no', self.instance.contact_no if self.instance else None)
         branch = attrs.get('branch', self.instance.branch if self.instance else None)
 
-        if not self.instance:  # Create
+        if not self.instance:
             if user.role in ['BRANCH_ADMIN', 'USER', 'KPO']:
                 attrs['branch'] = user.branch
                 branch = user.branch
-        else:  # Update
+        else:
             if 'branch' in attrs and attrs['branch'] != self.instance.branch:
                 raise serializers.ValidationError({"branch": "Branch mapping cannot be changed after creation."})
 
@@ -52,7 +60,6 @@ class OrderBookerSerializer(serializers.ModelSerializer):
         if contact_no:
             attrs['contact_no'] = contact_no.strip()
 
-        # Check unique constraint manual validations
         qs = OrderBooker.objects.filter(organization=org)
         if self.instance:
             qs = qs.exclude(id=self.instance.id)
@@ -101,11 +108,11 @@ class SalesmanSerializer(serializers.ModelSerializer):
         contact_no = attrs.get('contact_no', self.instance.contact_no if self.instance else None)
         branch = attrs.get('branch', self.instance.branch if self.instance else None)
 
-        if not self.instance:  # Create
+        if not self.instance:
             if user.role in ['BRANCH_ADMIN', 'USER', 'KPO']:
                 attrs['branch'] = user.branch
                 branch = user.branch
-        else:  # Update
+        else:
             if 'branch' in attrs and attrs['branch'] != self.instance.branch:
                 raise serializers.ValidationError({"branch": "Branch mapping cannot be changed after creation."})
 
@@ -114,7 +121,6 @@ class SalesmanSerializer(serializers.ModelSerializer):
         if contact_no:
             attrs['contact_no'] = contact_no.strip()
 
-        # Check unique constraint manual validations
         qs = Salesman.objects.filter(organization=org)
         if self.instance:
             qs = qs.exclude(id=self.instance.id)
@@ -168,15 +174,14 @@ class PartySerializer(serializers.ModelSerializer):
         contact_no = attrs.get('contact_no', self.instance.contact_no if self.instance else None)
         branch = attrs.get('branch', self.instance.branch if self.instance else None)
 
-        if not self.instance:  # Create
+        if not self.instance:
             if user.role in ['BRANCH_ADMIN', 'USER', 'KPO']:
                 attrs['branch'] = user.branch
                 branch = user.branch
-        else:  # Update
+        else:
             if 'branch' in attrs and attrs['branch'] != self.instance.branch:
                 raise serializers.ValidationError({"branch": "Branch mapping cannot be changed after creation."})
 
-        # Validate that at least one role is checked
         is_supplier = attrs.get('is_supplier', self.instance.is_supplier if self.instance else False)
         is_party = attrs.get('is_party', self.instance.is_party if self.instance else False)
         if not is_supplier and not is_party:
@@ -187,7 +192,6 @@ class PartySerializer(serializers.ModelSerializer):
         if contact_no:
             attrs['contact_no'] = contact_no.strip()
 
-        # Check unique constraint manual validations
         qs = Party.objects.filter(organization=org)
         if self.instance:
             qs = qs.exclude(id=self.instance.id)
@@ -240,13 +244,12 @@ class AccountOpeningSerializer(serializers.ModelSerializer):
         code = attrs.get('code', self.instance.code if self.instance else None)
         branch = attrs.get('branch', self.instance.branch if self.instance else None)
 
-        if not self.instance:  # Create
+        if not self.instance:
             if user.role in ['BRANCH_ADMIN', 'USER', 'KPO']:
                 attrs['branch'] = user.branch
                 branch = user.branch
-            # Set initial balance to opening balance
             attrs['balance'] = attrs.get('opening_balance', 0.00)
-        else:  # Update
+        else:
             if 'branch' in attrs and attrs['branch'] != self.instance.branch:
                 raise serializers.ValidationError({"branch": "Branch mapping cannot be changed after creation."})
 
@@ -255,7 +258,6 @@ class AccountOpeningSerializer(serializers.ModelSerializer):
         if code:
             attrs['code'] = code.strip()
 
-        # Unique name and code checks
         qs = AccountOpening.objects.filter(organization=org)
         if self.instance:
             qs = qs.exclude(id=self.instance.id)
@@ -278,9 +280,7 @@ class AccountOpeningSerializer(serializers.ModelSerializer):
         return attrs
 
 
-
-
-
+# ============== SALES INVOICE ==============
 
 class SalesInvoiceLineItemSerializer(serializers.ModelSerializer):
     item_name = serializers.ReadOnlyField(source='item.name')
@@ -336,19 +336,16 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                 branch = user.branch
             attrs['organization'] = org
 
-        # Enforce party belongs to org
         party = attrs.get('party')
         if party and party.organization != org:
             raise serializers.ValidationError({"party": "Party does not belong to this organization."})
         if party and not party.is_party:
             raise serializers.ValidationError({"party": "Selected contact is not designated as a Party."})
 
-        # Validate company is visible to organization
         company = attrs.get('company')
         if company and company.organization != org:
             raise serializers.ValidationError({"company": "Company does not belong to this organization."})
 
-        # Validate stock levels
         items_stock_deltas = {}
         if self.instance:
             for old_line in self.instance.line_items.all():
@@ -394,7 +391,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
             invoice.account.balance += invoice.net_amount
             invoice.account.save()
 
-            # Create base sales invoice journal entry
             sales_entry = JournalEntry.objects.create(
                 organization=invoice.organization,
                 branch=invoice.branch,
@@ -403,7 +399,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                 reference=invoice.sale_code,
                 sales_invoice=invoice
             )
-            # Debit line (Party/Customer accounts receivable)
             JournalItem.objects.create(
                 entry=sales_entry,
                 party=invoice.party,
@@ -411,7 +406,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                 credit=0.00,
                 description=f"Accounts Receivable - Invoice {invoice.sale_code}"
             )
-            # Credit line (Account Sales Revenue)
             JournalItem.objects.create(
                 entry=sales_entry,
                 account=invoice.account,
@@ -420,7 +414,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                 description=f"Sales Revenue - Invoice {invoice.sale_code}"
             )
 
-            # If paid, generate settlement entry
             if invoice.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
                     organization=invoice.organization,
@@ -430,7 +423,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                     reference=f"PAY-{invoice.sale_code}",
                     sales_invoice=invoice
                 )
-                # Debit line (Cash/Bank account receiving funds)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     account=invoice.account,
@@ -438,7 +430,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                     credit=0.00,
                     description=f"Cash Receipt - Invoice {invoice.sale_code}"
                 )
-                # Credit line (Party/Customer settling receivable)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     party=invoice.party,
@@ -453,7 +444,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
         line_items_data = validated_data.pop('line_items', None)
 
         with transaction.atomic():
-            # Clear old entries before processing new data
             JournalEntry.objects.filter(sales_invoice=instance).delete()
 
             for old_line in instance.line_items.all():
@@ -509,7 +499,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
             instance.account.balance += instance.net_amount
             instance.account.save()
 
-            # Recreate base sales invoice journal entry
             sales_entry = JournalEntry.objects.create(
                 organization=instance.organization,
                 branch=instance.branch,
@@ -518,7 +507,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                 reference=instance.sale_code,
                 sales_invoice=instance
             )
-            # Debit line (Party/Customer accounts receivable)
             JournalItem.objects.create(
                 entry=sales_entry,
                 party=instance.party,
@@ -526,7 +514,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                 credit=0.00,
                 description=f"Accounts Receivable - Invoice {instance.sale_code}"
             )
-            # Credit line (Account Sales Revenue)
             JournalItem.objects.create(
                 entry=sales_entry,
                 account=instance.account,
@@ -535,7 +522,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                 description=f"Sales Revenue - Invoice {instance.sale_code}"
             )
 
-            # If paid, generate settlement entry
             if instance.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
                     organization=instance.organization,
@@ -545,7 +531,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                     reference=f"PAY-{instance.sale_code}",
                     sales_invoice=instance
                 )
-                # Debit line (Cash/Bank account receiving funds)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     account=instance.account,
@@ -553,7 +538,6 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
                     credit=0.00,
                     description=f"Cash Receipt - Invoice {instance.sale_code}"
                 )
-                # Credit line (Party/Customer settling receivable)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     party=instance.party,
@@ -564,6 +548,8 @@ class SalesInvoiceSerializer(serializers.ModelSerializer):
 
             return instance
 
+
+# ============== PURCHASE INVOICE ==============
 
 class PurchaseInvoiceLineItemSerializer(serializers.ModelSerializer):
     item_name = serializers.ReadOnlyField(source='item.name')
@@ -658,7 +644,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
             invoice.account.balance += invoice.net_amount
             invoice.account.save()
 
-            # Create base purchase invoice journal entry
             purchase_entry = JournalEntry.objects.create(
                 organization=invoice.organization,
                 branch=invoice.branch,
@@ -667,7 +652,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                 reference=invoice.purchase_code,
                 purchase_invoice=invoice
             )
-            # Debit line (Account Purchase Expense)
             JournalItem.objects.create(
                 entry=purchase_entry,
                 account=invoice.account,
@@ -675,7 +659,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                 credit=0.00,
                 description=f"Purchase Expense - Invoice {invoice.purchase_code}"
             )
-            # Credit line (Party/Supplier accounts payable)
             JournalItem.objects.create(
                 entry=purchase_entry,
                 party=invoice.supplier,
@@ -684,7 +667,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                 description=f"Accounts Payable - Invoice {invoice.purchase_code}"
             )
 
-            # If paid, generate payout settlement entry
             if invoice.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
                     organization=invoice.organization,
@@ -694,7 +676,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                     reference=f"PAY-{invoice.purchase_code}",
                     purchase_invoice=invoice
                 )
-                # Debit line (Party/Supplier settling payable)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     party=invoice.supplier,
@@ -702,7 +683,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                     credit=0.00,
                     description=f"Accounts Payable Settlement - Invoice {invoice.purchase_code}"
                 )
-                # Credit line (Cash/Bank account paying out)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     account=invoice.account,
@@ -717,7 +697,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
         line_items_data = validated_data.pop('line_items', None)
 
         with transaction.atomic():
-            # Clear old entries before processing new data
             JournalEntry.objects.filter(purchase_invoice=instance).delete()
 
             for old_line in instance.line_items.all():
@@ -747,7 +726,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
             instance.adv_income_tax = validated_data.get('adv_income_tax', instance.adv_income_tax)
             instance.net_amount = validated_data.get('net_amount', instance.net_amount)
 
-            # Update supplier snapshot fields
             new_supplier = instance.supplier
             supplier_changed = 'supplier' in validated_data
             
@@ -774,7 +752,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
             instance.account.balance += instance.net_amount
             instance.account.save()
 
-            # Recreate base purchase invoice journal entry
             purchase_entry = JournalEntry.objects.create(
                 organization=instance.organization,
                 branch=instance.branch,
@@ -783,7 +760,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                 reference=instance.purchase_code,
                 purchase_invoice=instance
             )
-            # Debit line (Account Purchase Expense)
             JournalItem.objects.create(
                 entry=purchase_entry,
                 account=instance.account,
@@ -791,7 +767,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                 credit=0.00,
                 description=f"Purchase Expense - Invoice {instance.purchase_code}"
             )
-            # Credit line (Party/Supplier accounts payable)
             JournalItem.objects.create(
                 entry=purchase_entry,
                 party=instance.supplier,
@@ -800,7 +775,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                 description=f"Accounts Payable - Invoice {instance.purchase_code}"
             )
 
-            # If paid, generate payout settlement entry
             if instance.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
                     organization=instance.organization,
@@ -810,7 +784,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                     reference=f"PAY-{instance.purchase_code}",
                     purchase_invoice=instance
                 )
-                # Debit line (Party/Supplier settling payable)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     party=instance.supplier,
@@ -818,7 +791,6 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
                     credit=0.00,
                     description=f"Accounts Payable Settlement - Invoice {instance.purchase_code}"
                 )
-                # Credit line (Cash/Bank account paying out)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     account=instance.account,
@@ -829,6 +801,8 @@ class PurchaseInvoiceSerializer(serializers.ModelSerializer):
 
             return instance
 
+
+# ============== PURCHASE RETURN ==============
 
 class PurchaseReturnLineItemSerializer(serializers.ModelSerializer):
     item_name = serializers.ReadOnlyField(source='item.name')
@@ -861,6 +835,7 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'purchase_return_code', 'date', 'party_inv_no', 'supplier', 'supplier_name',
             'account', 'account_name', 'company', 'company_name', 'status',
+            'return_type',  # ✅ Normal/Damage field
             'remarks', 's_tax', 'freight', 'adv_income_tax', 'net_amount',
             'ntn', 'gst_no', 'credit_days', 'credit_limit', 'balance_amount',
             'branch', 'line_items',
@@ -912,20 +887,17 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                 item = item_data['item']
                 PurchaseReturnLineItem.objects.create(purchase_return=purchase_return, **item_data)
 
-                # Deduct stock for Purchase Return
                 item.current_stock -= item_data['pcs']
                 item.save()
 
             supplier = purchase_return.supplier
             if purchase_return.status == 'pending':
-                # Reversing purchase invoice: Reduces supplier balance (decreases payable to supplier)
                 supplier.balance_amount -= purchase_return.net_amount
                 supplier.save()
 
             purchase_return.account.balance -= purchase_return.net_amount
             purchase_return.account.save()
 
-            # Create base purchase return journal entry
             return_entry = JournalEntry.objects.create(
                 organization=purchase_return.organization,
                 branch=purchase_return.branch,
@@ -934,7 +906,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                 reference=purchase_return.purchase_return_code,
                 purchase_return=purchase_return
             )
-            # Debit line (Party/Supplier accounts payable reduced)
             JournalItem.objects.create(
                 entry=return_entry,
                 party=purchase_return.supplier,
@@ -942,7 +913,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                 credit=0.00,
                 description=f"Accounts Payable Reduced - Return {purchase_return.purchase_return_code}"
             )
-            # Credit line (Account Purchase Expense / Purchase Return reduced)
             JournalItem.objects.create(
                 entry=return_entry,
                 account=purchase_return.account,
@@ -951,7 +921,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                 description=f"Purchase Return - Return {purchase_return.purchase_return_code}"
             )
 
-            # If paid return
             if purchase_return.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
                     organization=purchase_return.organization,
@@ -961,7 +930,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                     reference=f"REF-{purchase_return.purchase_return_code}",
                     purchase_return=purchase_return
                 )
-                # Debit line (Cash/Bank account receiving refund)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     account=purchase_return.account,
@@ -969,7 +937,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                     credit=0.00,
                     description=f"Cash Refund Received - Return {purchase_return.purchase_return_code}"
                 )
-                # Credit line (Party/Supplier clearing the entry)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     party=purchase_return.supplier,
@@ -984,7 +951,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
         line_items_data = validated_data.pop('line_items', None)
 
         with transaction.atomic():
-            # Clear old entries before processing new data
             JournalEntry.objects.filter(purchase_return=instance).delete()
 
             for old_line in instance.line_items.all():
@@ -1014,6 +980,7 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
             instance.adv_income_tax = validated_data.get('adv_income_tax', instance.adv_income_tax)
             instance.net_amount = validated_data.get('net_amount', instance.net_amount)
             instance.party_inv_no = validated_data.get('party_inv_no', instance.party_inv_no)
+            instance.return_type = validated_data.get('return_type', instance.return_type)
 
             new_supplier = instance.supplier
             supplier_changed = 'supplier' in validated_data
@@ -1042,7 +1009,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
             instance.account.balance -= instance.net_amount
             instance.account.save()
 
-            # Create new base purchase return journal entry
             return_entry = JournalEntry.objects.create(
                 organization=instance.organization,
                 branch=instance.branch,
@@ -1051,7 +1017,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                 reference=instance.purchase_return_code,
                 purchase_return=instance
             )
-            # Debit line (Party/Supplier accounts payable reduced)
             JournalItem.objects.create(
                 entry=return_entry,
                 party=instance.supplier,
@@ -1059,7 +1024,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                 credit=0.00,
                 description=f"Accounts Payable Reduced - Return {instance.purchase_return_code}"
             )
-            # Credit line (Account Purchase Expense / Purchase Return reduced)
             JournalItem.objects.create(
                 entry=return_entry,
                 account=instance.account,
@@ -1068,7 +1032,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                 description=f"Purchase Return - Return {instance.purchase_return_code}"
             )
 
-            # If paid return
             if instance.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
                     organization=instance.organization,
@@ -1078,7 +1041,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                     reference=f"REF-{instance.purchase_return_code}",
                     purchase_return=instance
                 )
-                # Debit line (Cash/Bank account receiving refund)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     account=instance.account,
@@ -1086,7 +1048,6 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
                     credit=0.00,
                     description=f"Cash Refund Received - Return {instance.purchase_return_code}"
                 )
-                # Credit line (Party/Supplier clearing the entry)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     party=instance.supplier,
@@ -1097,6 +1058,8 @@ class PurchaseReturnSerializer(serializers.ModelSerializer):
 
             return instance
 
+
+# ============== DAMAGE RETURN ==============
 
 class DamageReturnLineItemSerializer(serializers.ModelSerializer):
     item_name = serializers.ReadOnlyField(source='item.name')
@@ -1179,7 +1142,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                 item = item_data['item']
                 DamageReturnLineItem.objects.create(damage_return=damage_return, **item_data)
 
-                # Deduct stock for Damage Return from damaged_stock
                 item.damaged_stock -= item_data['pcs']
                 item.save()
 
@@ -1191,7 +1153,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
             damage_return.account.balance -= damage_return.net_amount
             damage_return.account.save()
 
-            # Create base journal entry
             return_entry = JournalEntry.objects.create(
                 organization=damage_return.organization,
                 branch=damage_return.branch,
@@ -1200,7 +1161,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                 reference=damage_return.damage_return_code,
                 damage_return=damage_return
             )
-            # Debit line (Party/Supplier accounts payable reduced)
             JournalItem.objects.create(
                 entry=return_entry,
                 party=damage_return.supplier,
@@ -1208,7 +1168,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                 credit=0.00,
                 description=f"Accounts Payable Reduced (Damage) - Return {damage_return.damage_return_code}"
             )
-            # Credit line (Account Purchase Expense / Damage Return reduced)
             JournalItem.objects.create(
                 entry=return_entry,
                 account=damage_return.account,
@@ -1217,7 +1176,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                 description=f"Damage Return - Return {damage_return.damage_return_code}"
             )
 
-            # If paid return
             if damage_return.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
                     organization=damage_return.organization,
@@ -1227,7 +1185,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                     reference=f"REF-{damage_return.damage_return_code}",
                     damage_return=damage_return
                 )
-                # Debit line (Cash/Bank account receiving refund)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     account=damage_return.account,
@@ -1235,7 +1192,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                     credit=0.00,
                     description=f"Cash Refund Received (Damage) - Return {damage_return.damage_return_code}"
                 )
-                # Credit line (Party/Supplier clearing entry)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     party=damage_return.supplier,
@@ -1250,7 +1206,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
         line_items_data = validated_data.pop('line_items', None)
 
         with transaction.atomic():
-            # Clear old entries before processing new data
             JournalEntry.objects.filter(damage_return=instance).delete()
 
             for old_line in instance.line_items.all():
@@ -1306,7 +1261,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
             instance.account.balance -= instance.net_amount
             instance.account.save()
 
-            # Create new base journal entry
             return_entry = JournalEntry.objects.create(
                 organization=instance.organization,
                 branch=instance.branch,
@@ -1315,7 +1269,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                 reference=instance.damage_return_code,
                 damage_return=instance
             )
-            # Debit line (Party/Supplier accounts payable reduced)
             JournalItem.objects.create(
                 entry=return_entry,
                 party=instance.supplier,
@@ -1323,7 +1276,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                 credit=0.00,
                 description=f"Accounts Payable Reduced (Damage) - Return {instance.damage_return_code}"
             )
-            # Credit line (Account Purchase Expense / Damage Return reduced)
             JournalItem.objects.create(
                 entry=return_entry,
                 account=instance.account,
@@ -1332,7 +1284,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                 description=f"Damage Return - Return {instance.damage_return_code}"
             )
 
-            # If paid return
             if instance.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
                     organization=instance.organization,
@@ -1342,7 +1293,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                     reference=f"REF-{instance.damage_return_code}",
                     damage_return=instance
                 )
-                # Debit line (Cash/Bank account receiving refund)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     account=instance.account,
@@ -1350,7 +1300,6 @@ class DamageReturnSerializer(serializers.ModelSerializer):
                     credit=0.00,
                     description=f"Cash Refund Received (Damage) - Return {instance.damage_return_code}"
                 )
-                # Credit line (Party/Supplier clearing entry)
                 JournalItem.objects.create(
                     entry=pay_entry,
                     party=instance.supplier,
@@ -1362,12 +1311,13 @@ class DamageReturnSerializer(serializers.ModelSerializer):
             return instance
 
 
+# ============== JOURNAL ==============
+
 class JournalEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = JournalEntry
-        fields = [
-            'id', 'date', 'description', 'reference',
-            'sales_invoice', 'purchase_invoice', 'purchase_return', 'damage_return', 'damage_receiving', 'created_at'
+        fields = [   'id', 'date', 'description', 'reference',
+            'sales_invoice', 'purchase_invoice', 'purchase_return', 'damage_return', 'sales_return', 'created_at'
         ]
 
 
@@ -1384,12 +1334,14 @@ class JournalItemSerializer(serializers.ModelSerializer):
         ]
 
 
-class DamageReceivingLineItemSerializer(serializers.ModelSerializer):
+# ============== SALES RETURN ==============
+
+class SalesReturnLineItemSerializer(serializers.ModelSerializer):
     item_name = serializers.ReadOnlyField(source='item.name')
     item_code = serializers.ReadOnlyField(source='item.code')
 
     class Meta:
-        model = DamageReceivingLineItem
+        model = SalesReturnLineItem
         fields = [
             'id', 'item', 'item_name', 'item_code',
             'manual_code', 'issue_units', 'pcs', 'rate', 'amount',
@@ -1397,8 +1349,8 @@ class DamageReceivingLineItemSerializer(serializers.ModelSerializer):
         ]
 
 
-class DamageReceivingSerializer(serializers.ModelSerializer):
-    line_items = DamageReceivingLineItemSerializer(many=True)
+class SalesReturnSerializer(serializers.ModelSerializer):
+    line_items = SalesReturnLineItemSerializer(many=True)
     salesman_name = serializers.ReadOnlyField(source='salesman.name')
     party_name = serializers.ReadOnlyField(source='party.name')
     company_name = serializers.ReadOnlyField(source='company.name')
@@ -1411,16 +1363,17 @@ class DamageReceivingSerializer(serializers.ModelSerializer):
     )
 
     class Meta:
-        model = DamageReceiving
+        model = SalesReturn
         fields = [
-            'id', 'damage_receiving_code', 'date', 'salesman', 'salesman_name',
+            'id', 'sales_return_code', 'date', 'salesman', 'salesman_name',
             'party', 'party_name', 'account', 'account_name', 'company', 'company_name',
-            'status', 'remarks', 's_tax', 'net_amount',
+            'status', 'return_type',  # ✅ Normal/Damage field
+            'remarks', 's_tax', 'net_amount',
             'ntn', 'gst_no', 'credit_days', 'credit_limit', 'balance_amount',
             'branch', 'line_items',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'damage_receiving_code', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'sales_return_code', 'created_at', 'updated_at']
 
     def validate_line_items(self, value):
         if not value:
@@ -1464,108 +1417,102 @@ class DamageReceivingSerializer(serializers.ModelSerializer):
             validated_data['credit_days'] = validated_data.get('credit_days') if validated_data.get('credit_days') is not None else 0
             validated_data['balance_amount'] = validated_data.get('balance_amount') if validated_data.get('balance_amount') is not None else party.balance_amount
 
-            damage_receiving = DamageReceiving.objects.create(**validated_data)
+            sales_return = SalesReturn.objects.create(**validated_data)
 
             for item_data in line_items_data:
                 item = item_data['item']
-                DamageReceivingLineItem.objects.create(damage_receiving=damage_receiving, **item_data)
+                SalesReturnLineItem.objects.create(sales_return=sales_return, **item_data)
 
-                # Add stock to damaged_stock
-                item.damaged_stock += item_data['pcs']
+                item.current_stock += item_data['pcs']
                 item.save()
 
-            party = damage_receiving.party
-            if damage_receiving.status == 'pending':
-                # Reversing sale / receiving damage reduces the customer's outstanding balance
-                party.balance_amount -= damage_receiving.net_amount
+            party = sales_return.party
+            if sales_return.status == 'pending':
+                party.balance_amount -= sales_return.net_amount
                 party.save()
 
-            damage_receiving.account.balance -= damage_receiving.net_amount
-            damage_receiving.account.save()
+            sales_return.account.balance -= sales_return.net_amount
+            sales_return.account.save()
 
-            # Create base journal entry
-            receiving_entry = JournalEntry.objects.create(
-                organization=damage_receiving.organization,
-                branch=damage_receiving.branch,
-                date=damage_receiving.date,
-                description=f"Damage Receiving {damage_receiving.damage_receiving_code} - Party: {damage_receiving.party.name}",
-                reference=damage_receiving.damage_receiving_code,
-                damage_receiving=damage_receiving
+            return_entry = JournalEntry.objects.create(
+                organization=sales_return.organization,
+                branch=sales_return.branch,
+                date=sales_return.date,
+                description=f"Sales Return {sales_return.sales_return_code} - Party: {sales_return.party.name}",
+                reference=sales_return.sales_return_code,
+                sales_invoice=None,
+                purchase_invoice=None,
+                purchase_return=None,
+                damage_return=None,
+                sales_return=None
             )
-            # Debit line
             JournalItem.objects.create(
-                entry=receiving_entry,
-                account=damage_receiving.account,
-                debit=damage_receiving.net_amount,
+                entry=return_entry,
+                party=sales_return.party,
+                debit=sales_return.net_amount,
                 credit=0.00,
-                description=f"Damage Receiving Expense - Receipt {damage_receiving.damage_receiving_code}"
+                description=f"Sales Return Adjustment - Return {sales_return.sales_return_code}"
             )
-            # Credit line
             JournalItem.objects.create(
-                entry=receiving_entry,
-                party=damage_receiving.party,
+                entry=return_entry,
+                account=sales_return.account,
                 debit=0.00,
-                credit=damage_receiving.net_amount,
-                description=f"Accounts Receivable Reduced - Receipt {damage_receiving.damage_receiving_code}"
+                credit=sales_return.net_amount,
+                description=f"Sales Return - Return {sales_return.sales_return_code}"
             )
 
-            # If paid
-            if damage_receiving.status == 'paid':
+            if sales_return.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
-                    organization=damage_receiving.organization,
-                    branch=damage_receiving.branch,
-                    date=damage_receiving.date,
-                    description=f"Cash Refund for Damage Receiving {damage_receiving.damage_receiving_code}",
-                    reference=f"PAY-{damage_receiving.damage_receiving_code}",
-                    damage_receiving=damage_receiving
+                    organization=sales_return.organization,
+                    branch=sales_return.branch,
+                    date=sales_return.date,
+                    description=f"Cash Refund for Sales Return {sales_return.sales_return_code}",
+                    reference=f"REF-{sales_return.sales_return_code}",
+                    sales_invoice=None,
+                    purchase_invoice=None,
+                    purchase_return=None,
+                    damage_return=None,
+                    sales_return=None
                 )
-                # Debit line
                 JournalItem.objects.create(
                     entry=pay_entry,
-                    party=damage_receiving.party,
-                    debit=damage_receiving.net_amount,
+                    account=sales_return.account,
+                    debit=sales_return.net_amount,
                     credit=0.00,
-                    description=f"Customer Refund Settlement - Receipt {damage_receiving.damage_receiving_code}"
+                    description=f"Cash Refund Paid - Return {sales_return.sales_return_code}"
                 )
-                # Credit line
                 JournalItem.objects.create(
                     entry=pay_entry,
-                    account=damage_receiving.account,
+                    party=sales_return.party,
                     debit=0.00,
-                    credit=damage_receiving.net_amount,
-                    description=f"Cash Refund Paid - Receipt {damage_receiving.damage_receiving_code}"
+                    credit=sales_return.net_amount,
+                    description=f"Customer Refund Settlement - Return {sales_return.sales_return_code}"
                 )
 
-            return damage_receiving
+            return sales_return
 
     def update(self, instance, validated_data):
         line_items_data = validated_data.pop('line_items', None)
 
         with transaction.atomic():
-            # Clear old journal entries
-            JournalEntry.objects.filter(damage_receiving=instance).delete()
+            JournalEntry.objects.filter(sales_invoice=instance).delete()
 
-            # Revert old stock
             for old_line in instance.line_items.all():
                 item = old_line.item
-                item.damaged_stock -= old_line.pcs
+                item.current_stock -= old_line.pcs
                 item.save()
 
-            # Revert party balance
             old_party = instance.party
             if instance.status == 'pending':
                 old_party.balance_amount += instance.net_amount
                 old_party.save()
 
-            # Revert account balance
             old_account = instance.account
             old_account.balance += instance.net_amount
             old_account.save()
 
-            # Delete old line items
             instance.line_items.all().delete()
 
-            # Assign new values
             instance.party = validated_data.get('party', instance.party)
             instance.salesman = validated_data.get('salesman', instance.salesman)
             instance.date = validated_data.get('date', instance.date)
@@ -1575,6 +1522,7 @@ class DamageReceivingSerializer(serializers.ModelSerializer):
             instance.account = validated_data.get('account', instance.account)
             instance.s_tax = validated_data.get('s_tax', instance.s_tax)
             instance.net_amount = validated_data.get('net_amount', instance.net_amount)
+            instance.return_type = validated_data.get('return_type', instance.return_type)
 
             new_party = instance.party
             party_changed = 'party' in validated_data
@@ -1587,78 +1535,75 @@ class DamageReceivingSerializer(serializers.ModelSerializer):
 
             instance.save()
 
-            # Create new line items and update stock
             if line_items_data is not None:
                 for item_data in line_items_data:
                     item = item_data['item']
-                    DamageReceivingLineItem.objects.create(damage_receiving=instance, **item_data)
+                    SalesReturnLineItem.objects.create(sales_return=instance, **item_data)
 
-                    item.damaged_stock += item_data['pcs']
+                    item.current_stock += item_data['pcs']
                     item.save()
 
-            # Update party balance
             new_party = instance.party
             if instance.status == 'pending':
                 new_party.balance_amount -= instance.net_amount
                 new_party.save()
 
-            # Update account balance
             instance.account.balance -= instance.net_amount
             instance.account.save()
 
-            # Create base journal entry
-            receiving_entry = JournalEntry.objects.create(
+            return_entry = JournalEntry.objects.create(
                 organization=instance.organization,
                 branch=instance.branch,
                 date=instance.date,
-                description=f"Damage Receiving {instance.damage_receiving_code} - Party: {instance.party.name}",
-                reference=instance.damage_receiving_code,
-                damage_receiving=instance
+                description=f"Sales Return {instance.sales_return_code} - Party: {instance.party.name}",
+                reference=instance.sales_return_code,
+                sales_invoice=None,
+                purchase_invoice=None,
+                purchase_return=None,
+                damage_return=None,
+                sales_return=None
             )
-            # Debit line
             JournalItem.objects.create(
-                entry=receiving_entry,
-                account=instance.account,
+                entry=return_entry,
+                party=instance.party,
                 debit=instance.net_amount,
                 credit=0.00,
-                description=f"Damage Receiving Expense - Receipt {instance.damage_receiving_code}"
+                description=f"Sales Return Adjustment - Return {instance.sales_return_code}"
             )
-            # Credit line
             JournalItem.objects.create(
-                entry=receiving_entry,
-                party=instance.party,
+                entry=return_entry,
+                account=instance.account,
                 debit=0.00,
                 credit=instance.net_amount,
-                description=f"Accounts Receivable Reduced - Receipt {instance.damage_receiving_code}"
+                description=f"Sales Return - Return {instance.sales_return_code}"
             )
 
-            # If paid settlement
             if instance.status == 'paid':
                 pay_entry = JournalEntry.objects.create(
                     organization=instance.organization,
                     branch=instance.branch,
                     date=instance.date,
-                    description=f"Cash Refund for Damage Receiving {instance.damage_receiving_code}",
-                    reference=f"PAY-{instance.damage_receiving_code}",
-                    damage_receiving=instance
+                    description=f"Cash Refund for Sales Return {instance.sales_return_code}",
+                    reference=f"REF-{instance.sales_return_code}",
+                    sales_invoice=None,
+                    purchase_invoice=None,
+                    purchase_return=None,
+                    damage_return=None,
+                    sales_return=None
                 )
-                # Debit line
-                JournalItem.objects.create(
-                    entry=pay_entry,
-                    party=instance.party,
-                    debit=instance.net_amount,
-                    credit=0.00,
-                    description=f"Customer Refund Settlement - Receipt {instance.damage_receiving_code}"
-                )
-                # Credit line
                 JournalItem.objects.create(
                     entry=pay_entry,
                     account=instance.account,
+                    debit=instance.net_amount,
+                    credit=0.00,
+                    description=f"Cash Refund Paid - Return {instance.sales_return_code}"
+                )
+                JournalItem.objects.create(
+                    entry=pay_entry,
+                    party=instance.party,
                     debit=0.00,
                     credit=instance.net_amount,
-                    description=f"Cash Refund Paid - Receipt {instance.damage_receiving_code}"
+                    description=f"Customer Refund Settlement - Return {instance.sales_return_code}"
                 )
 
             return instance
-
-
