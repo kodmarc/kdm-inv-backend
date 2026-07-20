@@ -395,7 +395,12 @@ class PurchaseReturn(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [
+         indexes = [
+            models.Index(fields=['company', 'status']),
+            models.Index(fields=['company', 'return_type']),
+            models.Index(fields=['company', '-created_at']),
+        ]
+         constraints = [
             models.UniqueConstraint(
                 fields=['organization', 'purchase_return_code'],
                 condition=models.Q(branch__isnull=True),
@@ -559,7 +564,13 @@ class SalesReturn(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [
+          indexes = [
+            models.Index(fields=['company', 'status']),
+            models.Index(fields=['company', 'return_type']),
+            models.Index(fields=['company', '-created_at']),
+        ]
+          
+          constraints = [
             models.UniqueConstraint(
                 fields=['organization', 'sales_return_code'],
                 condition=models.Q(branch__isnull=True),
